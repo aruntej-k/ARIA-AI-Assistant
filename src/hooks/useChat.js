@@ -32,7 +32,7 @@ function buildPrompt(sysInfo) {
   return `ARIA: Windows assistant for ${U}. Desktop="${D}" Downloads="${L}"
 Reply: one sentence + JSON.
 Example: Opening Chrome.\`\`\`json\n{"action":"launch_app","name":"chrome"}\`\`\`
-Actions: launch_app(name) web_search(query,engine) open_url(url) open_file(path) open_folder(path) list_files(path) search_files(query,dir) create_file(path,content) create_folder(path) rename(path,newName) delete(path) screenshot clipboard_write(text) clipboard_read sys_info open_settings(setting) run_cmd(command) kill_app(name)
+Actions: launch_app(name) web_search(query,engine) open_url(url) open_file(path) open_folder(path) list_files(path) search_files(query,dir) create_file(path,content) create_folder(path) rename(pat[...]
 Apps: chrome firefox edge notepad calculator vlc spotify discord zoom vscode word excel cmd powershell explorer
 Vague: bored→web_search youtube | music→launch spotify | write→launch notepad | code→launch vscode | chat→launch discord | screenshot→screenshot | stats→sys_info
 Rule: always output JSON. One sentence only.`;
@@ -94,8 +94,9 @@ export function useChat({
     text = text.trim();
     if (!text || isLoading) return;
 
-    const useOllama = ollamaRunning && ollamaModel && (aiMode === 'ollama' || aiMode === 'auto');
-    const useClaude = claudeApiKey  && (aiMode === 'claude' || (aiMode === 'auto' && !ollamaRunning));
+    const useGemini = geminiApiKey && aiMode === 'gemini';
+    const useOllama = ollamaRunning && ollamaModel && aiMode === 'ollama';
+    const useClaude = claudeApiKey  && aiMode === 'claude';
 
     // ── Exact memory match → instant bypass ───────────────────
     const exactHit = memoryExactMatch(text);
@@ -118,7 +119,7 @@ export function useChat({
       return;
     }
 
-    if (!useOllama && !useClaude) {
+    if (!useOllama && !useClaude && !useGemini) {
       showToast('No AI connected — open Settings', 'error');
       return;
     }
@@ -132,8 +133,10 @@ export function useChat({
 
     if (useOllama) {
       await _streamOllama(text, ctx, prompt);
-    } else {
+    } else if (useClaude) {
       await _claudeRequest(text, ctx, prompt);
+    } else if (useGemini) {
+      await _geminiRequest(text, ctx, prompt);
     }
   }, [
     isLoading, ollamaRunning, ollamaModel, ollamaHost,
@@ -246,19 +249,19 @@ export function useChat({
   }, [claudeApiKey, parseAndRun, memorySave, addAiMsg, pushHistory]);
 
   const _geminiRequest = useCallback(async (originalText, ctx, prompt) => {
-  try {
-    const r = await window.aria.geminiMessage(geminiApiKey, ctx, prompt);
-    setIsLoading(false);
-    if (!r.ok) { addAiMsg(`⚠️ ${r.error}`, null, 'Gemini'); return; }
-    const display = stripJson(r.text);
-    const result  = await parseAndRun(r.text, originalText, memorySave);
-    addAiMsg(display || '✓', result, 'Gemini');
-    pushHistory('assistant', r.text);
-  } catch(e) {
-    setIsLoading(false);
-    addAiMsg(`⚠️ ${e.message}`, null, 'Gemini');
-  }
-}, [geminiApiKey, parseAndRun, memorySave, addAiMsg, pushHistory]);
+    try {
+      const r = await window.aria.geminiMessage(geminiApiKey, ctx, prompt);
+      setIsLoading(false);
+      if (!r.ok) { addAiMsg(`⚠️ ${r.error}`, null, 'Gemini'); return; }
+      const display = stripJson(r.text);
+      const result  = await parseAndRun(r.text, originalText, memorySave);
+      addAiMsg(display || '✓', result, 'Gemini');
+      pushHistory('assistant', r.text);
+    } catch(e) {
+      setIsLoading(false);
+      addAiMsg(`⚠️ ${e.message}`, null, 'Gemini');
+    }
+  }, [geminiApiKey, parseAndRun, memorySave, addAiMsg, pushHistory]);
 
   // ── Fuzzy confirm actions ─────────────────────────────────────
   const fuzzyConfirmRun = useCallback(async () => {
@@ -279,18 +282,20 @@ export function useChat({
     setFuzzyPending(null);
     if (!originalText) return;
 
-    const useOllama = ollamaRunning && ollamaModel && (aiMode === 'ollama' || aiMode === 'auto');
-    const useClaude = claudeApiKey  && (aiMode === 'claude' || (aiMode === 'auto' && !ollamaRunning));
-    if (!useOllama && !useClaude) { showToast('No AI connected', 'error'); return; }
+    const useGemini = geminiApiKey && aiMode === 'gemini';
+    const useOllama = ollamaRunning && ollamaModel && aiMode === 'ollama';
+    const useClaude = claudeApiKey  && aiMode === 'claude';
+    if (!useOllama && !useClaude && !useGemini) { showToast('No AI connected', 'error'); return; }
 
     setIsLoading(true);
     const prompt = promptRef.current || buildPrompt(sysInfo);
     const ctx    = history.slice(-3);
     if (useOllama) await _streamOllama(originalText, ctx, prompt);
-    else           await _claudeRequest(originalText, ctx, prompt);
+    else if (useClaude) await _claudeRequest(originalText, ctx, prompt);
+    else if (useGemini) await _geminiRequest(originalText, ctx, prompt);
   }, [
     fuzzyPending, ollamaRunning, ollamaModel, claudeApiKey,
-    aiMode, history, _streamOllama, _claudeRequest, showToast,
+    aiMode, history, _streamOllama, _claudeRequest, _geminiRequest, showToast,
   ]);
 
   const clearMessages = useCallback(() => {
