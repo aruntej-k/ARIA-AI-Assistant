@@ -245,6 +245,21 @@ export function useChat({
     }
   }, [claudeApiKey, parseAndRun, memorySave, addAiMsg, pushHistory]);
 
+  const _geminiRequest = useCallback(async (originalText, ctx, prompt) => {
+  try {
+    const r = await window.aria.geminiMessage(geminiApiKey, ctx, prompt);
+    setIsLoading(false);
+    if (!r.ok) { addAiMsg(`⚠️ ${r.error}`, null, 'Gemini'); return; }
+    const display = stripJson(r.text);
+    const result  = await parseAndRun(r.text, originalText, memorySave);
+    addAiMsg(display || '✓', result, 'Gemini');
+    pushHistory('assistant', r.text);
+  } catch(e) {
+    setIsLoading(false);
+    addAiMsg(`⚠️ ${e.message}`, null, 'Gemini');
+  }
+}, [geminiApiKey, parseAndRun, memorySave, addAiMsg, pushHistory]);
+
   // ── Fuzzy confirm actions ─────────────────────────────────────
   const fuzzyConfirmRun = useCallback(async () => {
     if (!fuzzyPending) return;
