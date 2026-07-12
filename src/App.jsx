@@ -72,6 +72,7 @@ export default function App() {
   const [ollamaModels,   setOllamaModels]   = useState([]);
   const [ollamaHost,     setOllamaHost]     = useState('http://localhost:11434');
   const [claudeApiKey,   setClaudeApiKey]   = useState(null);
+  const [geminiApiKey,   setGeminiApiKey]   = useState(null);
   const [aiMode,         setAiMode]         = useState('ollama');
   const [memory,         setMemory]         = useState([]);
   const [hotwordEnabled, setHotwordEnabled] = useState(false);
@@ -106,7 +107,7 @@ export default function App() {
     sendMessage, showWelcome, fuzzyConfirmRun, fuzzyConfirmAsk,
   } = useChat({
     ollamaRunning, ollamaModel, ollamaHost,
-    claudeApiKey, aiMode, sysInfo,
+    claudeApiKey, geminiApiKey, aiMode, sysInfo,
     parseAndRun, runAction,
     memoryExactMatch, memoryFuzzyMatch, memorySave,
     showToast,
@@ -126,6 +127,7 @@ export default function App() {
       if (cfgRes.status === 'fulfilled') {
         const cfg = cfgRes.value?.config || {};
         if (cfg.apiKey)         setClaudeApiKey(cfg.apiKey);
+        if (cfg.geminiApiKey)   setGeminiApiKey(cfg.geminiApiKey);
         if (cfg.aiMode)         setAiMode(cfg.aiMode);
         if (cfg.ollamaHost)     setOllamaHost(cfg.ollamaHost);
         if (cfg.ollamaModel)    setOllamaModel(cfg.ollamaModel);
@@ -149,18 +151,20 @@ export default function App() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    setShowSetup(!ollamaRunning && !claudeApiKey);
-  }, [ollamaRunning, claudeApiKey]);
+    setShowSetup(!ollamaRunning && !claudeApiKey && !geminiApiKey);
+  }, [ollamaRunning, claudeApiKey, geminiApiKey]);
 
   // Show welcome message once AI is connected
   const welcomeShown = useRef(false);
   useEffect(() => {
-    if (!welcomeShown.current && (ollamaRunning || claudeApiKey) && messages.length === 0) {
+    if (!welcomeShown.current && (ollamaRunning || claudeApiKey || geminiApiKey) && messages.length === 0) {
       welcomeShown.current = true;
-      const model = (aiMode !== 'claude' && ollamaModel) ? ollamaModel : 'Claude';
+      let model = 'Claude';
+      if (aiMode === 'gemini' && geminiApiKey) model = 'Gemini';
+      else if (aiMode !== 'claude' && ollamaModel) model = ollamaModel;
       showWelcome(model);
     }
-  }, [ollamaRunning, claudeApiKey, ollamaModel, aiMode, messages.length, showWelcome]);
+  }, [ollamaRunning, claudeApiKey, geminiApiKey, ollamaModel, aiMode, messages.length, showWelcome]);
 
   // ── Ollama refresh ────────────────────────────────────────────
   const refreshOllama = useCallback(async (silent = false) => {
@@ -243,6 +247,14 @@ export default function App() {
     showToast('Claude key saved!', 'success');
   }, [showToast]);
 
+  const handleGeminiKeySave = useCallback(async (key) => {
+    setGeminiApiKey(key);
+    try {
+      await window.aria.saveConfig({ geminiApiKey: key });
+    } catch(_) {}
+    showToast('Gemini key saved!', 'success');
+  }, [showToast]);
+
   const handleHotwordToggle = useCallback(async (enabled) => {
     setHotwordEnabled(enabled);
     try { await window.aria.saveConfig({ hotwordEnabled: enabled }); } catch(_) {}
@@ -310,6 +322,8 @@ export default function App() {
             onOllamaRefresh={() => refreshOllama(false)}
             claudeApiKey={claudeApiKey}
             onClaudeKeySave={handleClaudeKeySave}
+            geminiApiKey={geminiApiKey}
+            onGeminiKeySave={handleGeminiKeySave}
             sysInfo={sysInfo}
           />
         );
@@ -372,6 +386,7 @@ export default function App() {
           ollamaRunning={ollamaRunning}
           ollamaModel={ollamaModel}
           claudeApiKey={claudeApiKey}
+          geminiApiKey={geminiApiKey}
           aiMode={aiMode}
           onRefreshOllama={() => refreshOllama(false)}
           memoryCount={memory.length}
