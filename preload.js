@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('aria', {
 
   // Claude AI
   aiMessage: (apiKey, messages, systemPrompt) => ipcRenderer.invoke('ai-message', apiKey, messages, systemPrompt),
+  geminiMessage: (apiKey, messages, systemPrompt) => ipcRenderer.invoke('gemini-message', apiKey, messages, systemPrompt),
 
   // Ollama AI
   ollamaStatus:  (host)             => ipcRenderer.invoke('ollama-status', host),
