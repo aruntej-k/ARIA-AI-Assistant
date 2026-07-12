@@ -730,6 +730,53 @@ ipcMain.handle('ai-message', async (_, apiKey, messages, systemPrompt) => {
   });
 });
 
+ipcMain.handle('gemini-message', async (_, apiKey, messages, systemPrompt) => {
+  return new Promise((resolve) => {
+    // Gemini uses 'user'/'model' roles and a 'contents' array, not 'messages'
+    const contents = messages.map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }]
+    }));
+
+    const body = JSON.stringify({
+      system_instruction: { parts: [{ text: systemPrompt }] },
+      contents,
+      generationConfig: { temperature: 0.1, maxOutputTokens: 200 }
+    });
+
+    const model = 'gemini-2.5-flash'; // fast + free-tier friendly
+    let resolved = false;
+    const hardTimer = setTimeout(() => {
+      if (!resolved) { resolved = true; req.destroy(); resolve({ ok: false, error: 'Gemini API timed out after 30s' }); }
+    }, 30000);
+
+    const req = https.request({
+      hostname: 'generativelanguage.googleapis.com',
+      path: `/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      timeout: 30000,
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (resolved) return;
+        resolved = true; clearTimeout(hardTimer);
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.error) return resolve({ ok: false, error: parsed.error.message || JSON.stringify(parsed.error) });
+          const text = parsed.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+          resolve({ ok: true, text });
+        } catch (e) { resolve({ ok: false, error: `Parse error: ${e.message}` }); }
+      });
+    });
+    req.on('error', e => { if (!resolved) { resolved = true; clearTimeout(hardTimer); resolve({ ok: false, error: e.message }); } });
+    req.on('timeout', () => { req.destroy(); if (!resolved) { resolved = true; clearTimeout(hardTimer); resolve({ ok: false, error: 'Gemini API request timed out' }); } });
+    req.write(body);
+    req.end();
+  });
+});
+
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 function resolvePath(p) {
